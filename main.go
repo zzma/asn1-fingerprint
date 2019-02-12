@@ -322,7 +322,7 @@ Options:
 	flag.BoolVar(&conf.outputRotate, "rotate", false, "rotate output file")
 	flag.IntVar(&conf.rotateSize, "rotate-size", 5000000000, "size threshold for output file rotation")
 	flag.IntVar(&conf.workerCount, "workers", runtime.NumCPU(), "number of parallel parsers (one per file)")
-	flag.BoolVar(&conf.parseOID, "oid", false, "parse and use oids in fingerprinting")
+	flag.BoolVar(&conf.parseOID, "oid", false, "parse and use OIDs in fingerprinting")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()

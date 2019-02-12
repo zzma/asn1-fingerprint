@@ -15,7 +15,7 @@ Options:
   -o string
         output file path (default "-")
   -oid
-        parse and use oids in fingerprinting
+        parse and use OIDs in fingerprinting
   -profile
         run performance profiler
   -r    search input directory recursively
