@@ -28,6 +28,7 @@ type config struct {
 	workerCount int
 
 	parseOID bool
+	strict bool
 }
 
 func (c config) Init() error {

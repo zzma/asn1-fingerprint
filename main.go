@@ -242,8 +242,12 @@ func fpRecurse(tagChain []int, bytes []byte, c *config) ([]string, error) {
 			}
 
 		default:
-			log.Errorf("invalid simple ASN1 type: %d", obj.Tag)
-			return nil, errors.New("invalid ASN1 type")
+			if c.strict {
+				log.Errorf("invalid simple ASN1 type: %d", obj.Tag)
+				return nil, errors.New("invalid ASN1 type")
+			}
+
+			fps = append(fps, fpForChain(tagChain))
 		}
 	}
 
@@ -326,6 +330,7 @@ Options:
 	flag.BoolVar(&conf.parseOID, "oid", false, "parse and use OIDs in fingerprinting")
 	flag.StringVar(&conf.delimiter, "d", ",", "delimiter for asn1 data")
 	flag.IntVar(&conf.asn1Col, "f", 1, "column that contains asn1 data")
+	flag.BoolVar(&conf.strict, "strict", false, "fail if there are asn1 parsing errors")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()
