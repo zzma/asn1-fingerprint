@@ -403,8 +403,8 @@ func parseCompoundObj(bytes []byte) (ret []*asn1.RawValue, err error) {
 			Class:      t.class,
 			Tag:        t.tag,
 			IsCompound: t.isCompound,
-			Bytes: bytes[offset:offset+t.length],
-			FullBytes: bytes[oldOffset:offset+t.length],
+			Bytes:      bytes[offset : offset+t.length],
+			FullBytes:  bytes[oldOffset : offset+t.length],
 		}
 
 		ret = append(ret, &obj)

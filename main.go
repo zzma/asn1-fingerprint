@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -121,11 +122,15 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 			continue
 		}
 
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
+		reader := csv.NewReader(f)
+		reader.Comma = rune((c.delimiter)[0])
+
+		records, err := reader.ReadAll()
+
+		for _, record := range records {
 			var data []byte
 
-			line := strings.TrimSpace(scanner.Text())
+			line := record[c.asn1Col-1]
 			switch c.inputFormat {
 			case FormatHex:
 				data, err = hex.DecodeString(line)
@@ -148,10 +153,6 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 
 			outputs <- fp
 		}
-
-		if err := scanner.Err(); err != nil {
-			log.Fatal(err)
-		}
 	}
 	wg.Done()
 }
@@ -166,7 +167,7 @@ func fingerprint(bytes []byte, c *config) (string, error) {
 	//	return fp, errors.New("extraneous ASN1 data")
 	//}
 
-	fps, err := fpRecurse(make([]int,0), bytes, c)
+	fps, err := fpRecurse(make([]int, 0), bytes, c)
 	if err != nil {
 		return fp, err
 	}
@@ -235,7 +236,7 @@ func fpRecurse(tagChain []int, bytes []byte, c *config) ([]string, error) {
 				if err != nil {
 					return nil, err
 				}
-				fps = append(fps, fpForChain(tagChain) + "." + oid.String())
+				fps = append(fps, fpForChain(tagChain)+"."+oid.String())
 			} else {
 				fps = append(fps, fpForChain(tagChain))
 			}
@@ -317,12 +318,14 @@ Options:
 	flag.BoolVar(&conf.verbose, "v", false, "verbose debug output")
 	flag.StringVar(&conf.inputPath, "i", "", "input file/directory path")
 	flag.BoolVar(&conf.recursiveDir, "r", false, "search input directory recursively")
-	flag.StringVar(&conf.inputFormatStr, "f", "base64", "input data encoding format (base64, hex)")
+	flag.StringVar(&conf.inputFormatStr, "format", "base64", "input data encoding format (base64, hex)")
 	flag.StringVar(&conf.outputFilename, "o", "-", "output file path")
 	flag.BoolVar(&conf.outputRotate, "rotate", false, "rotate output file")
 	flag.IntVar(&conf.rotateSize, "rotate-size", 5000000000, "size threshold for output file rotation")
 	flag.IntVar(&conf.workerCount, "workers", runtime.NumCPU(), "number of parallel parsers (one per file)")
 	flag.BoolVar(&conf.parseOID, "oid", false, "parse and use OIDs in fingerprinting")
+	flag.StringVar(&conf.delimiter, "d", ",", "delimiter for asn1 data")
+	flag.IntVar(&conf.asn1Col, "f", 1, "column that contains asn1 data")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()

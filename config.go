@@ -11,12 +11,15 @@ const (
 
 type config struct {
 	verbose bool
-	profile  bool
+	profile bool
 
 	inputPath      string
 	inputFormatStr string
 	inputFormat    InputFormat
 	recursiveDir   bool
+
+	delimiter string
+	asn1Col   int
 
 	outputFilename string
 	outputRotate   bool
