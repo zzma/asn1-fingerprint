@@ -153,6 +153,8 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 
 			outputs <- fp
 		}
+
+		log.Infof("Finished job: %s", job.filepath)
 	}
 	wg.Done()
 }
