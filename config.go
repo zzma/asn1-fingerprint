@@ -11,15 +11,16 @@ const (
 
 type config struct {
 	verbose bool
+	profile  bool
 
-	inputPath string
+	inputPath      string
 	inputFormatStr string
-	inputFormat InputFormat
-	recursiveDir bool
+	inputFormat    InputFormat
+	recursiveDir   bool
 
 	outputFilename string
-	outputRotate bool
-	rotateSize int
+	outputRotate   bool
+	rotateSize     int
 
 	workerCount int
 

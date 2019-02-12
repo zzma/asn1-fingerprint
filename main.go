@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/pkg/profile"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io/ioutil"
@@ -312,6 +313,7 @@ Options:
 
 	var conf config
 
+	flag.BoolVar(&conf.profile, "profile", false, "run performance profiler")
 	flag.BoolVar(&conf.verbose, "v", false, "verbose debug output")
 	flag.StringVar(&conf.inputPath, "i", "", "input file/directory path")
 	flag.BoolVar(&conf.recursiveDir, "r", false, "search input directory recursively")
@@ -330,6 +332,10 @@ Options:
 	if len(os.Args) < 2 {
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	if conf.profile {
+		defer profile.Start().Stop()
 	}
 
 	if err := conf.Init(); err != nil {
