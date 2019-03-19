@@ -1,6 +1,6 @@
 /* mostly borrowed from https://github.com/golang/go/tree/master/src/encoding/asn1  */
 
-package main
+package asn1fp
 
 import (
 	"encoding/asn1"

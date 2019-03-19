@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/asn1"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -10,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/pkg/profile"
+	"github.com/zzma/asn1-fingerprint"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io/ioutil"
@@ -146,7 +146,7 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 				log.Fatal(errors.New("invalid input format " + c.inputFormatStr))
 			}
 
-			fp, err := fingerprint(data, c)
+			fp, err := asn1fp.Fingerprint(data, c.fpConfig)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -157,103 +157,6 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 		log.Infof("Finished job: %s", job.filepath)
 	}
 	wg.Done()
-}
-
-func fingerprint(bytes []byte, c *config) (string, error) {
-	var fp string
-	//var obj asn1.RawValue
-	//
-	//if rest, err := asn1.Unmarshal(bytes, &obj); err != nil {
-	//	return fp, err
-	//} else if len(rest) != 0 {
-	//	return fp, errors.New("extraneous ASN1 data")
-	//}
-
-	fps, err := fpRecurse(make([]int, 0), bytes, c)
-	if err != nil {
-		return fp, err
-	}
-
-	return strings.Join(fps, "|") + "\n", nil
-}
-
-func fpForChain(tagChain []int) string {
-	strs := make([]string, len(tagChain))
-	for i, v := range tagChain {
-		strs[i] = strconv.Itoa(v)
-	}
-	return strings.Join(strs, ":")
-}
-
-func fpRecurse(tagChain []int, bytes []byte, c *config) ([]string, error) {
-	var obj asn1.RawValue
-
-	rest, err := asn1.Unmarshal(bytes, &obj)
-	if err != nil {
-		return nil, err
-	}
-	if len(rest) > 0 {
-		return nil, errors.New("fpRecurse: excess data")
-	}
-
-	log.Debugf("Tags %s: %x", fpForChain(tagChain), bytes)
-
-	fps := make([]string, 0)
-	tagChain = append(tagChain, obj.Tag)
-
-	if obj.IsCompound {
-		//TODO: check for empty Sequence or Set
-		elements, err := parseCompoundObj(obj.Bytes)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		for _, element := range elements {
-			paths, err := fpRecurse(tagChain, element.FullBytes, c)
-			if err != nil {
-				return nil, err
-			}
-			fps = append(fps, paths...)
-		}
-	} else {
-		switch obj.Tag {
-		case asn1.TagBoolean,
-			asn1.TagInteger,
-			asn1.TagBitString,
-			asn1.TagOctetString,
-			asn1.TagNull,
-			asn1.TagEnum,
-			asn1.TagUTF8String,
-			asn1.TagNumericString,
-			asn1.TagPrintableString,
-			asn1.TagT61String,
-			asn1.TagIA5String,
-			asn1.TagUTCTime,
-			asn1.TagGeneralizedTime,
-			asn1.TagGeneralString:
-			fps = append(fps, fpForChain(tagChain))
-		case asn1.TagOID:
-			if c.parseOID {
-				oid, err := parseObjectIdentifier(obj.Bytes)
-				if err != nil {
-					return nil, err
-				}
-				fps = append(fps, fpForChain(tagChain)+"."+oid.String())
-			} else {
-				fps = append(fps, fpForChain(tagChain))
-			}
-
-		default:
-			if c.strict {
-				log.Errorf("invalid simple ASN1 type: %d", obj.Tag)
-				return nil, errors.New("invalid ASN1 type")
-			}
-
-			fps = append(fps, fpForChain(tagChain))
-		}
-	}
-
-	return fps, nil
 }
 
 func outputHandler(outputs chan string, wg *sync.WaitGroup, c *config) {
@@ -319,6 +222,7 @@ Options:
 `
 
 	var conf config
+	var fpConfig asn1fp.Config
 
 	flag.BoolVar(&conf.profile, "profile", false, "run performance profiler")
 	flag.BoolVar(&conf.verbose, "v", false, "verbose debug output")
@@ -329,14 +233,15 @@ Options:
 	flag.BoolVar(&conf.outputRotate, "rotate", false, "rotate output file")
 	flag.IntVar(&conf.rotateSize, "rotate-size", 5000000000, "size threshold for output file rotation")
 	flag.IntVar(&conf.workerCount, "workers", runtime.NumCPU(), "number of parallel parsers (one per file)")
-	flag.BoolVar(&conf.parseOID, "oid", false, "parse and use OIDs in fingerprinting")
+	flag.BoolVar(&fpConfig.ParseOID, "oid", false, "parse and use OIDs in fingerprinting")
 	flag.StringVar(&conf.delimiter, "d", ",", "delimiter for asn1 data")
 	flag.IntVar(&conf.asn1Col, "f", 1, "column that contains asn1 data")
-	flag.BoolVar(&conf.strict, "strict", false, "fail if there are asn1 parsing errors")
+	flag.BoolVar(&fpConfig.Strict, "strict", false, "fail if there are asn1 parsing errors")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()
 	}
+	conf.fpConfig = &fpConfig
 
 	flag.Parse()
 	if len(os.Args) < 2 {
@@ -357,6 +262,8 @@ Options:
 	} else {
 		log = initLogger(zapcore.InfoLevel)
 	}
+
+	conf.fpConfig.Log = log
 
 	jobs := make(chan Job)
 	go allocate(jobs, &conf)

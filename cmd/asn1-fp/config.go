@@ -1,6 +1,9 @@
 package main
 
-import "errors"
+import (
+	"errors"
+	"github.com/zzma/asn1-fingerprint"
+)
 
 type InputFormat int
 
@@ -26,9 +29,7 @@ type config struct {
 	rotateSize     int
 
 	workerCount int
-
-	parseOID bool
-	strict bool
+	fpConfig    *asn1fp.Config
 }
 
 func (c config) Init() error {
