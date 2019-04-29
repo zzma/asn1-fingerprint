@@ -237,6 +237,7 @@ Options:
 	flag.StringVar(&conf.delimiter, "d", ",", "delimiter for asn1 data")
 	flag.IntVar(&conf.asn1Col, "f", 1, "column that contains asn1 data")
 	flag.BoolVar(&fpConfig.Strict, "strict", false, "fail if there are asn1 parsing errors")
+	flag.BoolVar(&fpConfig.ExcludePrecert, "exclude-precert", false, "exclude precert")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()
