@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	ParseOID bool
-	Strict bool
-	Log *zap.SugaredLogger
+	ExcludePrecert bool
+	ParseOID       bool
+	Strict         bool
+	Log            *zap.SugaredLogger
 }
 
 func Fingerprint(bytes []byte, c *Config) (string, error) {
@@ -66,8 +67,14 @@ func fpRecurse(tagChain []int, bytes []byte, c *Config) ([]string, error) {
 		for _, element := range elements {
 			paths, err := fpRecurse(tagChain, element.FullBytes, c)
 			if err != nil {
-				return nil, err
+				switch err.(type) {
+				case *excludePrecertErr:
+					return nil, nil
+				default:
+					return nil, err
+				}
 			}
+
 			fps = append(fps, paths...)
 		}
 	} else {
@@ -88,6 +95,16 @@ func fpRecurse(tagChain []int, bytes []byte, c *Config) ([]string, error) {
 			asn1.TagGeneralString:
 			fps = append(fps, fpForChain(tagChain))
 		case asn1.TagOID:
+			if c.ExcludePrecert {
+				oid, err := parseObjectIdentifier(obj.Bytes)
+				if err != nil {
+					return nil, err
+				}
+				if oid.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}) {
+					return nil, &excludePrecertErr{}
+				}
+			}
+
 			if c.ParseOID {
 				oid, err := parseObjectIdentifier(obj.Bytes)
 				if err != nil {
@@ -100,7 +117,7 @@ func fpRecurse(tagChain []int, bytes []byte, c *Config) ([]string, error) {
 
 		default:
 			if c.Strict {
-				c.Log .Errorf("invalid simple ASN1 type: %d", obj.Tag)
+				c.Log.Errorf("invalid simple ASN1 type: %d", obj.Tag)
 				return nil, errors.New("invalid ASN1 type")
 			}
 
@@ -109,4 +126,9 @@ func fpRecurse(tagChain []int, bytes []byte, c *Config) ([]string, error) {
 	}
 
 	return fps, nil
+}
+
+type excludePrecertErr struct{}
+func (e *excludePrecertErr) Error() string {
+	return "found precert"
 }
