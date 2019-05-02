@@ -25,12 +25,13 @@ func Fingerprint(bytes []byte, c *Config) (string, error) {
 	//	return fp, errors.New("extraneous ASN1 data")
 	//}
 
-	fps, err := fpRecurse(make([]int, 0), bytes, c)
+	//fps, err := fpRecurse(make([]int, 0), bytes, c)
+	fps, err := fpRecurseTab(0, bytes, c)
 	if err != nil {
 		return fp, err
 	}
 
-	return strings.Join(fps, "|") + "\n", nil
+	return strings.Join(fps, "\n") + "\n", nil
 }
 
 func fpForChain(tagChain []int) string {
@@ -40,6 +41,106 @@ func fpForChain(tagChain []int) string {
 	}
 	return strings.Join(strs, ":")
 }
+
+func fpForDepth(depth int, tag int) string {
+	var str strings.Builder
+
+	for i := 0; i < depth; i++ {
+		str.WriteString("\t")
+	}
+	str.WriteString(strconv.Itoa(tag))
+
+	return str.String()
+}
+
+func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
+	var obj asn1.RawValue
+
+	rest, err := asn1.Unmarshal(bytes, &obj)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) > 0 {
+		return nil, errors.New("fpRecurse: excess data")
+	}
+
+	//c.Log.Debugf("Tags %s: %x", fpForChain(tagChain), bytes)
+
+	fps := make([]string, 0)
+
+	if obj.IsCompound {
+		fps = append(fps, fpForDepth(depth, obj.Tag))
+
+		//TODO: check for empty Sequence or Set
+		elements, err := parseCompoundObj(obj.Bytes)
+		if err != nil {
+			c.Log.Fatal(err)
+		}
+
+		for _, element := range elements {
+			paths, err := fpRecurseTab(depth+1, element.FullBytes, c)
+			if err != nil {
+				switch err.(type) {
+				case *excludePrecertErr:
+					return nil, nil
+				default:
+					return nil, err
+				}
+			}
+
+			fps = append(fps, paths...)
+		}
+	} else {
+		switch obj.Tag {
+		case asn1.TagBoolean,
+			asn1.TagInteger,
+			asn1.TagBitString,
+			asn1.TagOctetString,
+			asn1.TagNull,
+			asn1.TagEnum,
+			asn1.TagUTF8String,
+			asn1.TagNumericString,
+			asn1.TagPrintableString,
+			asn1.TagT61String,
+			asn1.TagIA5String,
+			asn1.TagUTCTime,
+			asn1.TagGeneralizedTime,
+			asn1.TagGeneralString:
+			fps = append(fps, fpForDepth(depth, obj.Tag))
+		case asn1.TagOID:
+			if c.ExcludePrecert {
+				oid, err := parseObjectIdentifier(obj.Bytes)
+				if err != nil {
+					return nil, err
+				}
+				if oid.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}) {
+					return nil, &excludePrecertErr{}
+				}
+			}
+
+			if c.ParseOID {
+				oid, err := parseObjectIdentifier(obj.Bytes)
+				if err != nil {
+					return nil, err
+				}
+				fps = append(fps, fpForDepth(depth, obj.Tag)+"."+oid.String())
+			} else {
+				fps = append(fps, fpForDepth(depth, obj.Tag))
+			}
+
+		default:
+			if c.Strict {
+				c.Log.Errorf("invalid simple ASN1 type: %d", obj.Tag)
+				return nil, errors.New("invalid ASN1 type")
+			}
+
+			fps = append(fps, fpForDepth(depth, obj.Tag))
+		}
+	}
+
+	return fps, nil
+}
+
 
 func fpRecurse(tagChain []int, bytes []byte, c *Config) ([]string, error) {
 	var obj asn1.RawValue
