@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -151,7 +152,13 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 				log.Fatal(err)
 			}
 
-			outputs <- fp
+
+			fpBytes, err := json.Marshal(fp)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fpString := strings.Trim(string(fpBytes[:]), "\"")
+			outputs <- fpString + "\n"
 		}
 
 		log.Infof("Finished job: %s", job.filepath)
@@ -182,7 +189,8 @@ func outputHandler(outputs chan string, wg *sync.WaitGroup, c *config) {
 		}
 	}
 
-	const WRITE_BUFFER_SIZE = 4096 * 10000
+	//const WRITE_BUFFER_SIZE = 4096 * 10000
+	const WRITE_BUFFER_SIZE = 4096
 	w := bufio.NewWriterSize(outputFile, WRITE_BUFFER_SIZE)
 	outputSize := 0
 
@@ -238,6 +246,9 @@ Options:
 	flag.IntVar(&conf.asn1Col, "f", 1, "column that contains asn1 data")
 	flag.BoolVar(&fpConfig.Strict, "strict", false, "fail if there are asn1 parsing errors")
 	flag.BoolVar(&fpConfig.ExcludePrecert, "exclude-precert", false, "exclude precert")
+	flag.BoolVar(&fpConfig.IncludeExtensions, "include-extensions", false, "include extension parsing")
+	flag.BoolVar(&fpConfig.IncludeSANNames, "include-san", false, "include the list of SAN extension names")
+	flag.BoolVar(&fpConfig.ExcludeSubjAndIssuerNames, "exclude-subj-issuer", false, "exclude subject and issuer names for the cert")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()

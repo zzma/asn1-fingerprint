@@ -3,43 +3,31 @@ package asn1fp
 import (
 	"encoding/asn1"
 	"errors"
+	"github.com/prometheus/common/log"
 	"go.uber.org/zap"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-	ExcludePrecert bool
-	ParseOID       bool
-	Strict         bool
-	Log            *zap.SugaredLogger
+	IncludeExtensions bool
+	ExcludeSubjAndIssuerNames bool
+	IncludeSANNames          bool
+	ExcludePrecert           bool
+	ParseOID                 bool
+	Strict                   bool
+	Log                      *zap.SugaredLogger
 }
 
 func Fingerprint(bytes []byte, c *Config) (string, error) {
 	var fp string
-	//var obj asn1.RawValue
-	//
-	//if rest, err := asn1.Unmarshal(bytes, &obj); err != nil {
-	//	return fp, err
-	//} else if len(rest) != 0 {
-	//	return fp, errors.New("extraneous ASN1 data")
-	//}
 
-	//fps, err := fpRecurse(make([]int, 0), bytes, c)
-	fps, err := fpRecurseTab(0, bytes, c)
+	fps, err := fpRecurse(0, bytes, c)
 	if err != nil {
 		return fp, err
 	}
 
 	return strings.Join(fps, "\n") + "\n", nil
-}
-
-func fpForChain(tagChain []int) string {
-	strs := make([]string, len(tagChain))
-	for i, v := range tagChain {
-		strs[i] = strconv.Itoa(v)
-	}
-	return strings.Join(strs, ":")
 }
 
 func fpForDepth(depth int, tag int) string {
@@ -53,7 +41,56 @@ func fpForDepth(depth int, tag int) string {
 	return str.String()
 }
 
-func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
+const (
+	SerialNumberTag = 2
+	SignatureTag    = 16
+	IssuerTag       = 16
+	ValidityTag     = 16
+	SubjectTag      = 16
+	SpkiTag         = 16
+)
+
+//TODO: hacky way to check for subject / issuer name
+func matchesTBSCertFormat(elements []*asn1.RawValue) bool {
+	if len(elements) < 6 {
+		return false
+	}
+
+	explicitVersion := elements[0].Tag == 0
+	var indexOffset int
+	if explicitVersion {
+		indexOffset = 1
+	} else {
+		indexOffset = 0
+	}
+
+	if elements[0+indexOffset].Tag != SerialNumberTag {
+		return false
+	}
+
+	if elements[1+indexOffset].Tag != SignatureTag {
+		return false
+	}
+
+	if elements[2+indexOffset].Tag != IssuerTag {
+		return false
+	}
+	if elements[3+indexOffset].Tag != ValidityTag {
+		return false
+	}
+
+	if elements[4+indexOffset].Tag != SubjectTag {
+		return false
+	}
+
+	if elements[5+indexOffset].Tag != SpkiTag {
+		return false
+	}
+
+	return true
+}
+
+func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 	var obj asn1.RawValue
 
 	rest, err := asn1.Unmarshal(bytes, &obj)
@@ -63,8 +100,6 @@ func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
 	if len(rest) > 0 {
 		return nil, errors.New("fpRecurse: excess data")
 	}
-
-	//c.Log.Debugf("Tags %s: %x", fpForChain(tagChain), bytes)
 
 	fps := make([]string, 0)
 
@@ -77,12 +112,19 @@ func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
 			c.Log.Fatal(err)
 		}
 
+		if c.ExcludeSubjAndIssuerNames && matchesTBSCertFormat(elements) {
+			elements = append(elements[:5], elements[6:]...)
+			elements = append(elements[:3], elements[4:]...)
+		}
+
 		for _, element := range elements {
-			paths, err := fpRecurseTab(depth+1, element.FullBytes, c)
+			paths, err := fpRecurse(depth+1, element.FullBytes, c)
 			if err != nil {
 				switch err.(type) {
 				case *excludePrecertErr:
 					return nil, nil
+				case *excludeSANNamesErr:
+					return append(fps, paths...), nil
 				default:
 					return nil, err
 				}
@@ -91,11 +133,11 @@ func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
 			fps = append(fps, paths...)
 		}
 	} else {
+		//	TODO: fix issue where GeneralName types [0-8] map to asn1 types
 		switch obj.Tag {
 		case asn1.TagBoolean,
 			asn1.TagInteger,
 			asn1.TagBitString,
-			asn1.TagOctetString,
 			asn1.TagNull,
 			asn1.TagEnum,
 			asn1.TagUTF8String,
@@ -107,6 +149,23 @@ func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
 			asn1.TagGeneralizedTime,
 			asn1.TagGeneralString:
 			fps = append(fps, fpForDepth(depth, obj.Tag))
+		case asn1.TagOctetString:
+			if c.IncludeExtensions && depth == 5 { //TODO: fix this hack for parsing extensions
+				paths, err := fpRecurse(depth+1, obj.Bytes, c)
+				if err != nil {
+					switch err.(type) {
+					case *excludePrecertErr:
+						return nil, nil
+					default:
+						return nil, err
+					}
+				}
+
+				fps = append(fps, paths...)
+			} else {
+				fps = append(fps, fpForDepth(depth, obj.Tag))
+			}
+
 		case asn1.TagOID:
 			if c.ExcludePrecert {
 				oid, err := parseObjectIdentifier(obj.Bytes)
@@ -118,11 +177,33 @@ func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
 				}
 			}
 
+			if !c.IncludeSANNames {
+				oid, err := parseObjectIdentifier(obj.Bytes)
+				if err != nil {
+					return nil, err
+				}
+				if oid.Equal(asn1.ObjectIdentifier{2, 5, 29, 17}) {
+					if c.ParseOID {
+						fps = append(fps, fpForDepth(depth, obj.Tag)+"."+oid.String())
+					} else {
+						fps = append(fps, fpForDepth(depth, obj.Tag))
+					}
+					return fps, &excludeSANNamesErr{}
+				}
+			}
+
 			if c.ParseOID {
 				oid, err := parseObjectIdentifier(obj.Bytes)
 				if err != nil {
 					return nil, err
 				}
+
+				if len(oid) > 15 {
+					log.Debug("Skipping super long OID, likely a IA5 General Name")
+					fps = append(fps, fpForDepth(depth, obj.Tag))
+					return fps, nil
+				}
+
 				fps = append(fps, fpForDepth(depth, obj.Tag)+"."+oid.String())
 			} else {
 				fps = append(fps, fpForDepth(depth, obj.Tag))
@@ -141,95 +222,14 @@ func fpRecurseTab(depth int, bytes []byte, c *Config) ([]string, error) {
 	return fps, nil
 }
 
-
-func fpRecurse(tagChain []int, bytes []byte, c *Config) ([]string, error) {
-	var obj asn1.RawValue
-
-	rest, err := asn1.Unmarshal(bytes, &obj)
-	if err != nil {
-		return nil, err
-	}
-	if len(rest) > 0 {
-		return nil, errors.New("fpRecurse: excess data")
-	}
-
-	c.Log.Debugf("Tags %s: %x", fpForChain(tagChain), bytes)
-
-	fps := make([]string, 0)
-	tagChain = append(tagChain, obj.Tag)
-
-	if obj.IsCompound {
-		//TODO: check for empty Sequence or Set
-		elements, err := parseCompoundObj(obj.Bytes)
-		if err != nil {
-			c.Log.Fatal(err)
-		}
-
-		for _, element := range elements {
-			paths, err := fpRecurse(tagChain, element.FullBytes, c)
-			if err != nil {
-				switch err.(type) {
-				case *excludePrecertErr:
-					return nil, nil
-				default:
-					return nil, err
-				}
-			}
-
-			fps = append(fps, paths...)
-		}
-	} else {
-		switch obj.Tag {
-		case asn1.TagBoolean,
-			asn1.TagInteger,
-			asn1.TagBitString,
-			asn1.TagOctetString,
-			asn1.TagNull,
-			asn1.TagEnum,
-			asn1.TagUTF8String,
-			asn1.TagNumericString,
-			asn1.TagPrintableString,
-			asn1.TagT61String,
-			asn1.TagIA5String,
-			asn1.TagUTCTime,
-			asn1.TagGeneralizedTime,
-			asn1.TagGeneralString:
-			fps = append(fps, fpForChain(tagChain))
-		case asn1.TagOID:
-			if c.ExcludePrecert {
-				oid, err := parseObjectIdentifier(obj.Bytes)
-				if err != nil {
-					return nil, err
-				}
-				if oid.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}) {
-					return nil, &excludePrecertErr{}
-				}
-			}
-
-			if c.ParseOID {
-				oid, err := parseObjectIdentifier(obj.Bytes)
-				if err != nil {
-					return nil, err
-				}
-				fps = append(fps, fpForChain(tagChain)+"."+oid.String())
-			} else {
-				fps = append(fps, fpForChain(tagChain))
-			}
-
-		default:
-			if c.Strict {
-				c.Log.Errorf("invalid simple ASN1 type: %d", obj.Tag)
-				return nil, errors.New("invalid ASN1 type")
-			}
-
-			fps = append(fps, fpForChain(tagChain))
-		}
-	}
-
-	return fps, nil
-}
-
 type excludePrecertErr struct{}
+
 func (e *excludePrecertErr) Error() string {
 	return "found precert"
+}
+
+type excludeSANNamesErr struct{}
+
+func (e *excludeSANNamesErr) Error() string {
+	return "found SAN"
 }
