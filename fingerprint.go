@@ -90,6 +90,22 @@ func matchesTBSCertFormat(elements []*asn1.RawValue) bool {
 	return true
 }
 
+func parseOIDHandleBigInt(bytes []byte) (s asn1.ObjectIdentifier, err error) {
+	oid, err := parseObjectIdentifier(bytes)
+
+	if err == nil {
+		return oid, nil
+	}
+
+	largeBase128Err := asn1.StructuralError{"base 128 integer too large"}
+	if err == largeBase128Err {
+		return asn1.ObjectIdentifier{6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6}, nil
+	}
+
+	return oid, err
+
+}
+
 func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 	var obj asn1.RawValue
 
@@ -133,7 +149,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			fps = append(fps, paths...)
 		}
 	} else {
-		//	TODO: fix issue where GeneralName types [0-8] map to asn1 types
+		//	TODO: fix issue where GeneralName types [0-8] map to asn1 types in extensions
 		switch obj.Tag {
 		case asn1.TagBoolean,
 			asn1.TagInteger,
@@ -168,7 +184,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 
 		case asn1.TagOID:
 			if c.ExcludePrecert {
-				oid, err := parseObjectIdentifier(obj.Bytes)
+				oid, err := parseOIDHandleBigInt(obj.Bytes)
 				if err != nil {
 					return nil, err
 				}
@@ -178,7 +194,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			}
 
 			if !c.IncludeSANNames {
-				oid, err := parseObjectIdentifier(obj.Bytes)
+				oid, err := parseOIDHandleBigInt(obj.Bytes)
 				if err != nil {
 					return nil, err
 				}
@@ -193,7 +209,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			}
 
 			if c.ParseOID {
-				oid, err := parseObjectIdentifier(obj.Bytes)
+				oid, err := parseOIDHandleBigInt(obj.Bytes)
 				if err != nil {
 					return nil, err
 				}
