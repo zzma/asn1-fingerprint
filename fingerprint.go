@@ -113,7 +113,8 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(rest) > 0 {
+	//TODO: fix this later - proper extension ASN.1 parsing
+	if len(rest) > 0 && !c.IncludeExtensions {
 		return nil, errors.New("fpRecurse: excess data")
 	}
 
