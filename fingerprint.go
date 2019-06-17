@@ -11,12 +11,12 @@ import (
 
 type Config struct {
 	IncludeExtensions bool
-	ExcludeSubjAndIssuerNames bool
-	IncludeSANNames          bool
-	ExcludePrecert           bool
-	ParseOID                 bool
-	Strict                   bool
-	Log                      *zap.SugaredLogger
+	ExcludeSubjNames  bool
+	IncludeSANNames   bool
+	ExcludePrecert    bool
+	ParseOID          bool
+	Strict            bool
+	Log               *zap.SugaredLogger
 }
 
 func Fingerprint(bytes []byte, c *Config) (string, error) {
@@ -129,9 +129,13 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			c.Log.Fatal(err)
 		}
 
-		if c.ExcludeSubjAndIssuerNames && matchesTBSCertFormat(elements) {
-			elements = append(elements[:5], elements[6:]...)
-			elements = append(elements[:3], elements[4:]...)
+		if matchesTBSCertFormat(elements) {
+			if c.ExcludeSubjNames {
+				elements = append(elements[:5], elements[6:]...) // skip subject
+				elements = append(elements[:3], elements[4:]...) // skip issuer
+			} else {
+				elements = append(elements[:3], elements[4:]...) // skip issuer
+			}
 		}
 
 		for _, element := range elements {

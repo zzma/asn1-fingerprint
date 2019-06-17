@@ -248,7 +248,7 @@ Options:
 	flag.BoolVar(&fpConfig.ExcludePrecert, "exclude-precert", false, "exclude precert")
 	flag.BoolVar(&fpConfig.IncludeExtensions, "include-extensions", false, "include extension parsing")
 	flag.BoolVar(&fpConfig.IncludeSANNames, "include-san", false, "include the list of SAN extension names")
-	flag.BoolVar(&fpConfig.ExcludeSubjAndIssuerNames, "exclude-subj-issuer", false, "exclude subject and issuer names for the cert")
+	flag.BoolVar(&fpConfig.ExcludeSubjNames, "exclude-subj", false, "exclude subject name for the cert")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()
