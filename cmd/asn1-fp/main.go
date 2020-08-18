@@ -92,7 +92,7 @@ func allocate(jobs chan Job, c *config) {
 
 	for _, f := range filepaths {
 		log.Debugf("Allocating job: %s", f)
-		jobs <- Job{filepath: f,}
+		jobs <- Job{filepath: f}
 	}
 	close(jobs)
 }
@@ -151,7 +151,6 @@ func inputHandler(jobs chan Job, outputs chan string, wg *sync.WaitGroup, c *con
 			if err != nil {
 				log.Fatal(err)
 			}
-
 
 			fpBytes, err := json.Marshal(fp)
 			if err != nil {
@@ -247,7 +246,6 @@ Options:
 	flag.BoolVar(&fpConfig.Strict, "strict", false, "fail if there are asn1 parsing errors")
 	flag.BoolVar(&fpConfig.ExcludePrecert, "exclude-precert", false, "exclude precert")
 	flag.BoolVar(&fpConfig.IncludeExtensions, "include-extensions", false, "include extension parsing")
-	flag.BoolVar(&fpConfig.IncludeSANNames, "include-san", false, "include the list of SAN extension names")
 	flag.BoolVar(&fpConfig.ExcludeSubjNames, "exclude-subj", false, "exclude subject name for the cert")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, usage, os.Args[0])

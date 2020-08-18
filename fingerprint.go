@@ -9,10 +9,13 @@ import (
 	"strings"
 )
 
+var (
+	oidExtensionCTPrecertificatePoison = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}
+)
+
 type Config struct {
 	IncludeExtensions bool
 	ExcludeSubjNames  bool
-	IncludeSANNames   bool
 	ExcludePrecert    bool
 	ParseOID          bool
 	Strict            bool
@@ -144,8 +147,6 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 				switch err.(type) {
 				case *excludePrecertErr:
 					return nil, nil
-				case *excludeSANNamesErr:
-					return append(fps, paths...), nil
 				default:
 					return nil, err
 				}
@@ -188,37 +189,16 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			}
 
 		case asn1.TagOID:
-			if c.ExcludePrecert {
-				oid, err := parseOIDHandleBigInt(obj.Bytes)
-				if err != nil {
-					return nil, err
-				}
-				if oid.Equal(asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}) {
-					return nil, &excludePrecertErr{}
-				}
+			oid, err := parseOIDHandleBigInt(obj.Bytes)
+			if err != nil {
+				return nil, err
 			}
 
-			if !c.IncludeSANNames {
-				oid, err := parseOIDHandleBigInt(obj.Bytes)
-				if err != nil {
-					return nil, err
-				}
-				if oid.Equal(asn1.ObjectIdentifier{2, 5, 29, 17}) {
-					if c.ParseOID {
-						fps = append(fps, fpForDepth(depth, obj.Tag)+"."+oid.String())
-					} else {
-						fps = append(fps, fpForDepth(depth, obj.Tag))
-					}
-					return fps, &excludeSANNamesErr{}
-				}
+			if c.ExcludePrecert && oid.Equal(oidExtensionCTPrecertificatePoison) {
+				return nil, &excludePrecertErr{}
 			}
 
 			if c.ParseOID {
-				oid, err := parseOIDHandleBigInt(obj.Bytes)
-				if err != nil {
-					return nil, err
-				}
-
 				if len(oid) > 15 {
 					log.Debug("Skipping super long OID, likely a IA5 General Name")
 					fps = append(fps, fpForDepth(depth, obj.Tag))
@@ -247,10 +227,4 @@ type excludePrecertErr struct{}
 
 func (e *excludePrecertErr) Error() string {
 	return "found precert"
-}
-
-type excludeSANNamesErr struct{}
-
-func (e *excludeSANNamesErr) Error() string {
-	return "found SAN"
 }
