@@ -11,6 +11,9 @@ import (
 
 var (
 	oidExtensionCTPrecertificatePoison = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}
+	oidExtensionAuthorityInfoAccess            = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
+	oidExtensionSubjectInfoAccess            = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 11}
+	oidExtensionSignedCertificateTimestampList = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}
 )
 
 type Config struct {
@@ -116,7 +119,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	//TODO: fix this later - proper extension ASN.1 parsing
+
 	if len(rest) > 0 && !c.IncludeExtensions {
 		return nil, errors.New("fpRecurse: excess data")
 	}
@@ -132,7 +135,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			c.Log.Fatal(err)
 		}
 
-		if matchesTBSCertFormat(elements) {
+		if depth == 1 && matchesTBSCertFormat(elements) {
 			if c.ExcludeSubjNames {
 				elements = append(elements[:5], elements[6:]...) // skip subject
 				elements = append(elements[:3], elements[4:]...) // skip issuer
@@ -141,19 +144,69 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 			}
 		}
 
-		for _, element := range elements {
-			paths, err := fpRecurse(depth+1, element.FullBytes, c)
+		// Detect extension object and handle each extension by OID
+		if depth == 2 && obj.Tag == 3 && len(elements) == 1 && c.IncludeExtensions {
+			extensions, err := parseCompoundObj(elements[0].Bytes)
 			if err != nil {
-				switch err.(type) {
-				case *excludePrecertErr:
-					return nil, nil
-				default:
-					return nil, err
-				}
+				c.Log.Fatal(err)
 			}
 
-			fps = append(fps, paths...)
+			for _, obj := range extensions {
+				extension, err := parseCompoundObj(obj.Bytes)
+				if err != nil {
+					c.Log.Fatal(err)
+				}
+				extOID, err := parseOIDHandleBigInt(extension[0].Bytes)
+				if err != nil {
+					c.Log.Fatal(err)
+				}
+
+				if len(extOID) == 4 && extOID[0] == 2 && extOID[1] == 5 && extOID[2] == 29 {
+					switch extOID[3] {
+					case 35: // RFC 5280, 4.2.1.1. Authority Key Identifier
+					case 14: // RFC 5280, 4.2.1.2. Subject Key Identifier
+					case 15: // RFC 5280, 4.2.1.3. Key Usage
+					case 32: // RFC 5280, 4.2.1.4. Certificate Policies
+					case 33: // RFC 5280, 4.2.1.5. Policy Mappings
+					case 17: // RFC 5280, 4.2.1.6. Subject Alternative Name
+					case 18: // RFC 5280, 4.2.1.7. Issuer Alternative Name
+					case 9: // RFC 5280, 4.2.1.8. Subject Directory Attributes
+					case 19: // RFC 5280, 4.2.1.9. Basic Constraints
+					case 30: // RFC 5280, 4.2.1.10. Name Constraints
+					case 36: // RFC 5280, 4.2.1.11. Policy Constraints
+					case 37: // RFC 5280, 4.2.1.12. Extended Key Usage
+					case 31: // RFC 5280, 4.2.1.13. CRL Distribution Points
+					case 54: // RFC 5280, 4.2.1.14. Inhibit anyPolicy
+					case 46: // RFC 5280, 4.2.1.15. Freshest CRL (a.k.a. Delta CRL Distribution Point)
+					default:
+
+					}
+				} else if extOID.Equal(oidExtensionAuthorityInfoAccess) {
+
+				} else if extOID.Equal(oidExtensionSubjectInfoAccess) {
+
+				} else if extOID.Equal(oidExtensionSignedCertificateTimestampList) {
+
+				} else if extOID.Equal(oidExtensionCTPrecertificatePoison) {
+
+				}
+			}
+		} else {
+			for _, element := range elements {
+				paths, err := fpRecurse(depth+1, element.FullBytes, c)
+				if err != nil {
+					switch err.(type) {
+					case *excludePrecertErr:
+						return nil, nil
+					default:
+						return nil, err
+					}
+				}
+
+				fps = append(fps, paths...)
+			}
 		}
+
 	} else {
 		//	TODO: fix issue where GeneralName types [0-8] map to asn1 types in extensions
 		switch obj.Tag {
