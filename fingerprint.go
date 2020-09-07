@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/prometheus/common/log"
 	"go.uber.org/zap"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -320,7 +321,20 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					// 18 - RFC 5280, 4.2.1.7. Issuer Alternative Name
 					//   IssuerAltName ::= GeneralNames
 					case 17, 18:
-					//TODO: distinguish between the set of General Names used? Not number of names
+						altNameExt, err := parseCompoundObj(extData.Bytes)
+						if err != nil {
+							c.Log.Fatal(err)
+						}
+						fps = append(fps, fpForDepth(currentDepth+2, altNameExt[0].Tag))
+						altNames, err := parseCompoundObj(altNameExt[0].Bytes)
+						if err != nil {
+							c.Log.Fatal(err)
+						}
+						set := NewSortedTagSet()
+						for _, altName := range altNames {
+							set.Add(altName.Tag)
+						}
+						fps = append(fps, fpStrForDepth(currentDepth+3,set.String()))
 
 					// RFC 5280, 4.2.1.8. Subject Directory Attributes
 					// SubjectDirectoryAttributes ::= SEQUENCE SIZE (1..MAX) OF Attribute
@@ -396,14 +410,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					default:
 						c.Log.Warn("Extension with oid", extOID, "not found")
 					}
-				} else if extOID.Equal(oidExtensionAuthorityInfoAccess) || extOID.Equal(oidExtensionSubjectInfoAccess) {
-					paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
-					if err != nil {
-						c.Log.Fatal(err)
-					}
-					fps = append(fps, paths...)
-				} else if extOID.Equal(oidExtensionSignedCertificateTimestampList) {
-					// TODO: parse SCT list
+				} else if extOID.Equal(oidExtensionAuthorityInfoAccess) || extOID.Equal(oidExtensionSubjectInfoAccess) || extOID.Equal(oidExtensionSignedCertificateTimestampList) {
 					paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
 					if err != nil {
 						c.Log.Fatal(err)
@@ -486,4 +493,40 @@ type excludePrecertErr struct{}
 
 func (e *excludePrecertErr) Error() string {
 	return "found precert"
+}
+
+type sortedTagSet struct{
+	items map[int]struct{}
+}
+
+func NewSortedTagSet() *sortedTagSet {
+	return &sortedTagSet{items: make(map[int]struct{})}
+}
+
+func (s *sortedTagSet) Add(i int) {
+	s.items[i] = struct{}{}
+}
+
+func (s *sortedTagSet) Remove(i int) {
+	delete(s.items, i)
+}
+
+func (s *sortedTagSet) Keys() []int {
+	keys := make([]int, len(s.items))
+	i := 0
+	for k := range s.items {
+		keys[i] = k
+		i++
+	}
+	sort.Ints(keys)
+	return keys
+}
+
+func (s *sortedTagSet) String() string {
+	keys := s.Keys()
+	strs := make([]string, len(keys))
+	for i, key := range keys {
+		strs[i] = strconv.Itoa(key)
+	}
+	return strings.Join(strs, ",")
 }
