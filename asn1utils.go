@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -170,6 +171,18 @@ func parseBitString(bytes []byte) (ret asn1.BitString, err error) {
 	ret.BitLength = (len(bytes)-1)*8 - paddingBits
 	ret.Bytes = bytes[1:]
 	return
+}
+
+func bitStringToString(bs asn1.BitString) string {
+	str := strings.Builder{}
+	for i := 0; i < bs.BitLength; i++ {
+		if bs.At(i) != 0 {
+			str.WriteRune('1')
+		} else {
+			str.WriteRune('0')
+		}
+	}
+	return str.String()
 }
 
 // parseObjectIdentifier parses an OBJECT IDENTIFIER from the given bytes and
