@@ -15,6 +15,8 @@ var (
 	oidExtensionAuthorityInfoAccess            = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
 	oidExtensionSubjectInfoAccess              = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 11}
 	oidExtensionSignedCertificateTimestampList = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 2}
+	oidCertPolicyCPSURI                        = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 2, 1}
+	oidCertPolicyUserNotice                    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 2, 2}
 )
 
 type Config struct {
@@ -209,7 +211,23 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					//  ExtKeyUsageSyntax ::= SEQUENCE SIZE (1..MAX) OF KeyPurposeId
 					//
 					//  KeyPurposeId ::= OBJECT IDENTIFIER
-					case 35, 14, 19, 37:
+					// 30 - RFC 5280, 4.2.1.10. Name Constraints
+					//	 NameConstraints ::= SEQUENCE {
+					//	           permittedSubtrees       [0]     GeneralSubtrees OPTIONAL,
+					//	           excludedSubtrees        [1]     GeneralSubtrees OPTIONAL }
+					//
+					//	      GeneralSubtrees ::= SEQUENCE SIZE (1..MAX) OF GeneralSubtree
+					// 	 GeneralSubtree ::= SEQUENCE {
+					//            base                    GeneralName,
+					//            minimum         [0]     BaseDistance DEFAULT 0,
+					//            maximum         [1]     BaseDistance OPTIONAL }
+					// 36 - RFC 5280, 4.2.1.11. Policy Constraints
+					//   PolicyConstraints ::= SEQUENCE {
+					//        requireExplicitPolicy           [0] SkipCerts OPTIONAL,
+					//        inhibitPolicyMapping            [1] SkipCerts OPTIONAL }
+					//
+					//   SkipCerts ::= INTEGER (0..MAX)
+					case 35, 14, 19, 37, 30, 36:
 						paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
 						if err != nil {
 							c.Log.Fatal(err)
@@ -280,13 +298,44 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					//        visibleString    VisibleString  (SIZE (1..200)),
 					//        bmpString        BMPString      (SIZE (1..200)),
 					//        utf8String       UTF8String     (SIZE (1..200)) }
+					// We ignore CA-specific certPolicyId, but FP PolicyQualifierId, if present
 					case 32:
 						cpExt, err := parseCompoundObj(extData.Bytes)
 						if err != nil {
 							c.Log.Fatal(err)
 						}
 						fps = append(fps, fpForDepth(currentDepth+2, cpExt[0].Tag))
-						//TODO: customize CA-specific OID stuff
+						certPolicies, err := parseCompoundObj(cpExt[0].Bytes)
+						if err != nil {
+							c.Log.Fatal(err)
+						}
+						for _, certPolicy := range certPolicies {
+							fps = append(fps, fpForDepth(currentDepth+3, certPolicy.Tag))
+							policy, err := parseCompoundObj(certPolicy.Bytes)
+							if err != nil {
+								c.Log.Fatal(err)
+							}
+							fps = append(fps, fpForDepth(currentDepth+4, policy[0].Tag))
+							if len(policy) == 2 {
+								fps = append(fps, fpForDepth(currentDepth+4, policy[1].Tag))
+								policyQualifiers, err := parseCompoundObj(policy[1].Bytes)
+								if err != nil {
+									c.Log.Fatal(err)
+								}
+								for _, policyQualifier := range policyQualifiers {
+									fps = append(fps, fpForDepth(currentDepth+5, policyQualifier.Tag))
+									elements, err := parseCompoundObj(policyQualifier.Bytes)
+									if err != nil {
+										c.Log.Fatal(err)
+									}
+									oid, err := parseOIDHandleBigInt(elements[0].Bytes)
+									if err != nil {
+										c.Log.Fatal(err)
+									}
+									fps = append(fps, fpForDepth(currentDepth+6, elements[0].Tag)+"."+oid.String())
+								}
+							}
+						}
 
 					// Extensions to not deep-dive for fingerprinting
 					// RFC 5280, 4.2.1.5. Policy Mappings - ONLY for CA certificates
@@ -334,7 +383,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 						for _, altName := range altNames {
 							set.Add(altName.Tag)
 						}
-						fps = append(fps, fpStrForDepth(currentDepth+3,set.String()))
+						fps = append(fps, fpStrForDepth(currentDepth+3, set.String()))
 
 					// RFC 5280, 4.2.1.8. Subject Directory Attributes
 					// SubjectDirectoryAttributes ::= SEQUENCE SIZE (1..MAX) OF Attribute
@@ -351,9 +400,6 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					//         type    AttributeType,
 					//         value   AttributeValue }
 					case 9: //TODO: finish
-
-					case 30: // RFC 5280, 4.2.1.10. Name Constraints
-					case 36: // RFC 5280, 4.2.1.11. Policy Constraints
 
 					// 31 - RFC 5280, 4.2.1.13. CRL Distribution Points
 					// CRLDistributionPoints ::= SEQUENCE SIZE (1..MAX) OF DistributionPoint
@@ -437,7 +483,6 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 		}
 
 	} else {
-		//	TODO: fix issue where GeneralName types [0-8] map to asn1 types in extensions
 		switch obj.Tag {
 		case asn1.TagBoolean,
 			asn1.TagInteger,
@@ -466,6 +511,7 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 
 			if c.ParseOID {
 				if len(oid) > 15 {
+					//	TODO: fix issue where GeneralName types [0-8] map to asn1 types in extensions
 					log.Debug("Skipping super long OID, likely a IA5 General Name")
 					fps = append(fps, fpForDepth(depth, obj.Tag))
 					return fps, nil
@@ -495,7 +541,7 @@ func (e *excludePrecertErr) Error() string {
 	return "found precert"
 }
 
-type sortedTagSet struct{
+type sortedTagSet struct {
 	items map[int]struct{}
 }
 
