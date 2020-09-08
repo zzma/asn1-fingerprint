@@ -218,7 +218,11 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					//        inhibitPolicyMapping            [1] SkipCerts OPTIONAL }
 					//
 					//   SkipCerts ::= INTEGER (0..MAX)
-					case 35, 14, 19, 37, 36:
+					// 16 - RFC 3280, 4.2.1.4  Private Key Usage Period
+					//    PrivateKeyUsagePeriod ::= SEQUENCE {
+					//        notBefore       [0]     GeneralizedTime OPTIONAL,
+					//        notAfter        [1]     GeneralizedTime OPTIONAL }
+					case 35, 14, 19, 37, 36, 16:
 						paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
 						if err != nil {
 							c.Log.Fatal(err)
