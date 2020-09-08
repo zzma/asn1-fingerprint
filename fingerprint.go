@@ -211,23 +211,14 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					//  ExtKeyUsageSyntax ::= SEQUENCE SIZE (1..MAX) OF KeyPurposeId
 					//
 					//  KeyPurposeId ::= OBJECT IDENTIFIER
-					// 30 - RFC 5280, 4.2.1.10. Name Constraints
-					//	 NameConstraints ::= SEQUENCE {
-					//	           permittedSubtrees       [0]     GeneralSubtrees OPTIONAL,
-					//	           excludedSubtrees        [1]     GeneralSubtrees OPTIONAL }
-					//
-					//	      GeneralSubtrees ::= SEQUENCE SIZE (1..MAX) OF GeneralSubtree
-					// 	 GeneralSubtree ::= SEQUENCE {
-					//            base                    GeneralName,
-					//            minimum         [0]     BaseDistance DEFAULT 0,
-					//            maximum         [1]     BaseDistance OPTIONAL }
+
 					// 36 - RFC 5280, 4.2.1.11. Policy Constraints
 					//   PolicyConstraints ::= SEQUENCE {
 					//        requireExplicitPolicy           [0] SkipCerts OPTIONAL,
 					//        inhibitPolicyMapping            [1] SkipCerts OPTIONAL }
 					//
 					//   SkipCerts ::= INTEGER (0..MAX)
-					case 35, 14, 19, 37, 30, 36:
+					case 35, 14, 19, 37, 36:
 						paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
 						if err != nil {
 							c.Log.Fatal(err)
@@ -338,9 +329,23 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 						}
 
 					// Extensions to not deep-dive for fingerprinting
-					// RFC 5280, 4.2.1.5. Policy Mappings - ONLY for CA certificates
-					// RFC 5280, 4.2.1.14. Inhibit anyPolicy
-					case 33, 54:
+					// 33 - RFC 5280, 4.2.1.5. Policy Mappings - ONLY for CA certificates
+					// 54 - RFC 5280, 4.2.1.14. Inhibit anyPolicy - ONLY for CA certificates
+					// 9 - RFC 5280, 4.2.1.8. Subject Directory Attributes - too specific
+					// SubjectDirectoryAttributes ::= SEQUENCE SIZE (1..MAX) OF Attribute
+					// Attribute               ::= SEQUENCE {
+					//      type             AttributeType,
+					//      values    SET OF AttributeValue }
+					//            -- at least one value is required
+					//
+					// AttributeType           ::= OBJECT IDENTIFIER
+					//
+					// AttributeValue          ::= ANY -- DEFINED BY AttributeType
+					//
+					// AttributeTypeAndValue   ::= SEQUENCE {
+					//         type    AttributeType,
+					//         value   AttributeValue }
+					case 33, 54, 9:
 						// do nothing
 
 					// 17 - RFC 5280, 4.2.1.6. Subject Alternative Name
@@ -385,21 +390,30 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 						}
 						fps = append(fps, fpStrForDepth(currentDepth+3, set.String()))
 
-					// RFC 5280, 4.2.1.8. Subject Directory Attributes
-					// SubjectDirectoryAttributes ::= SEQUENCE SIZE (1..MAX) OF Attribute
-					// Attribute               ::= SEQUENCE {
-					//      type             AttributeType,
-					//      values    SET OF AttributeValue }
-					//            -- at least one value is required
+
+					// 30 - RFC 5280, 4.2.1.10. Name Constraints
+					//	 NameConstraints ::= SEQUENCE {
+					//	           permittedSubtrees       [0]     GeneralSubtrees OPTIONAL,
+					//	           excludedSubtrees        [1]     GeneralSubtrees OPTIONAL }
 					//
-					// AttributeType           ::= OBJECT IDENTIFIER
-					//
-					// AttributeValue          ::= ANY -- DEFINED BY AttributeType
-					//
-					// AttributeTypeAndValue   ::= SEQUENCE {
-					//         type    AttributeType,
-					//         value   AttributeValue }
-					case 9: //TODO: finish
+					//	      GeneralSubtrees ::= SEQUENCE SIZE (1..MAX) OF GeneralSubtree
+					// 	 GeneralSubtree ::= SEQUENCE {
+					//            base                    GeneralName,
+					//            minimum         [0]     BaseDistance DEFAULT 0,
+					//            maximum         [1]     BaseDistance OPTIONAL }
+					case 30:
+						nameConstraintsExt, err := parseCompoundObj(extData.Bytes)
+						if err != nil {
+							c.Log.Fatal(err)
+						}
+						fps = append(fps, fpForDepth(currentDepth+2, nameConstraintsExt[0].Tag))
+						nameConstraints, err := parseCompoundObj(nameConstraintsExt[0].Bytes)
+						if err != nil {
+							c.Log.Fatal(err)
+						}
+						for _, subTreeType := range nameConstraints {
+							fps = append(fps, fpForDepth(currentDepth+3, subTreeType.Tag))
+						}
 
 					// 31 - RFC 5280, 4.2.1.13. CRL Distribution Points
 					// CRLDistributionPoints ::= SEQUENCE SIZE (1..MAX) OF DistributionPoint
