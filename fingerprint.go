@@ -172,11 +172,13 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 				fps = append(fps, fpForDepth(currentDepth, obj.Tag))
 				extension, err := parseCompoundObj(obj.Bytes)
 				if err != nil {
-					c.Log.Fatal(err)
+					c.Log.Error(err)
+					continue
 				}
 				extOID, err := parseOIDHandleBigInt(extension[0].Bytes)
 				if err != nil {
-					c.Log.Fatal(err)
+					c.Log.Error(err)
+					continue
 				}
 
 				fps = append(fps, fpForDepth(currentDepth+1, extension[0].Tag)+"."+extOID.String())
@@ -225,7 +227,8 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					case 35, 14, 19, 37, 36, 16:
 						paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, paths...)
 
@@ -243,12 +246,14 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					case 15:
 						keyUsageExt, err := parseCompoundObj(extData.Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, fpForDepth(currentDepth+2, keyUsageExt[0].Tag))
 						bitString, err := parseBitString(keyUsageExt[0].Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, fpStrForDepth(currentDepth+3, bitStringToString(bitString))) // custom bitstring print
 
@@ -297,35 +302,41 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					case 32:
 						cpExt, err := parseCompoundObj(extData.Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, fpForDepth(currentDepth+2, cpExt[0].Tag))
 						certPolicies, err := parseCompoundObj(cpExt[0].Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						for _, certPolicy := range certPolicies {
 							fps = append(fps, fpForDepth(currentDepth+3, certPolicy.Tag))
 							policy, err := parseCompoundObj(certPolicy.Bytes)
 							if err != nil {
-								c.Log.Fatal(err)
+								c.Log.Error(err)
+								continue
 							}
 							fps = append(fps, fpForDepth(currentDepth+4, policy[0].Tag))
 							if len(policy) == 2 {
 								fps = append(fps, fpForDepth(currentDepth+4, policy[1].Tag))
 								policyQualifiers, err := parseCompoundObj(policy[1].Bytes)
 								if err != nil {
-									c.Log.Fatal(err)
+									c.Log.Error(err)
+									continue
 								}
 								for _, policyQualifier := range policyQualifiers {
 									fps = append(fps, fpForDepth(currentDepth+5, policyQualifier.Tag))
 									elements, err := parseCompoundObj(policyQualifier.Bytes)
 									if err != nil {
-										c.Log.Fatal(err)
+										c.Log.Error(err)
+										continue
 									}
 									oid, err := parseOIDHandleBigInt(elements[0].Bytes)
 									if err != nil {
-										c.Log.Fatal(err)
+										c.Log.Error(err)
+										continue
 									}
 									fps = append(fps, fpForDepth(currentDepth+6, elements[0].Tag)+"."+oid.String())
 								}
@@ -381,12 +392,14 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					case 17, 18:
 						altNameExt, err := parseCompoundObj(extData.Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, fpForDepth(currentDepth+2, altNameExt[0].Tag))
 						altNames, err := parseCompoundObj(altNameExt[0].Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						set := NewSortedTagSet()
 						for _, altName := range altNames {
@@ -408,12 +421,14 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					case 30:
 						nameConstraintsExt, err := parseCompoundObj(extData.Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, fpForDepth(currentDepth+2, nameConstraintsExt[0].Tag))
 						nameConstraints, err := parseCompoundObj(nameConstraintsExt[0].Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						for _, subTreeType := range nameConstraints {
 							fps = append(fps, fpForDepth(currentDepth+3, subTreeType.Tag))
@@ -445,25 +460,29 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 					case 31, 46:
 						crlDistExt, err := parseCompoundObj(extData.Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						fps = append(fps, fpForDepth(currentDepth+2, crlDistExt[0].Tag))
 						distPoints, err := parseCompoundObj(crlDistExt[0].Bytes)
 						if err != nil {
-							c.Log.Fatal(err)
+							c.Log.Error(err)
+							continue
 						}
 						for _, distPoint := range distPoints {
 							fps = append(fps, fpForDepth(currentDepth+3, distPoint.Tag))
 							elements, err := parseCompoundObj(distPoint.Bytes)
 							if err != nil {
-								c.Log.Fatal(err)
+								c.Log.Error(err)
+								continue
 							}
 							for _, element := range elements {
 								fps = append(fps, fpForDepth(currentDepth+4, element.Tag))
 								if element.Tag == 1 { // reasons ReasonFlag bit string
 									bitString, err := parseBitString(element.Bytes)
 									if err != nil {
-										c.Log.Fatal(err)
+										c.Log.Error(err)
+										continue
 									}
 									fps = append(fps, fpStrForDepth(currentDepth+5, bitStringToString(bitString))) // custom bitstring print
 								}
@@ -477,7 +496,8 @@ func fpRecurse(depth int, bytes []byte, c *Config) ([]string, error) {
 				} else if extOID.Equal(oidExtensionAuthorityInfoAccess) || extOID.Equal(oidExtensionSubjectInfoAccess) || extOID.Equal(oidExtensionSignedCertificateTimestampList) {
 					paths, err := fpRecurse(currentDepth+2, extData.Bytes, c)
 					if err != nil {
-						c.Log.Fatal(err)
+						c.Log.Error(err)
+						continue
 					}
 					fps = append(fps, paths...)
 				} else if extOID.Equal(oidExtensionCTPrecertificatePoison) {
